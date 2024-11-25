@@ -1,91 +1,113 @@
-""" from https://github.com/keithito/tacotron """
+"""
+Mixed Urdu-English Text Cleaner for Humanized TTS
 
-'''
-Cleaners are transformations that run over the input text at both training and eval time.
-
-Cleaners can be selected by passing a comma-delimited list of cleaner names as the "cleaners"
-hyperparameter. Some cleaners are English-specific. You'll typically want to use:
-  1. "english_cleaners" for English text
-  2. "transliteration_cleaners" for non-English text that can be transliterated to ASCII using
-     the Unidecode library (https://pypi.python.org/pypi/Unidecode)
-  3. "basic_cleaners" if you do not want to transliterate (in this case, you should also update
-     the symbols in symbols.py to match your data).
-'''
+This cleaner processes Urdu text while seamlessly handling interspersed English words.
+It expands abbreviations, normalizes numbers, handles punctuation, and prepares text
+for natural-sounding text-to-speech synthesis.
+"""
 
 import re
-from unidecode import unidecode
-from .numbers import normalize_numbers
-
+from .numbers_urdu import normalize_numbers_urdu
+from unidecode import unidecode  # For English transliteration if needed
 
 # Regular expression matching whitespace:
 _whitespace_re = re.compile(r'\s+')
 
-# List of (regular expression, replacement) pairs for abbreviations:
-_abbreviations = [(re.compile('\\b%s\\.' % x[0], re.IGNORECASE), x[1]) for x in [
-  ('mrs', 'misess'),
-  ('mr', 'mister'),
-  ('dr', 'doctor'),
-  ('st', 'saint'),
-  ('co', 'company'),
-  ('jr', 'junior'),
-  ('maj', 'major'),
-  ('gen', 'general'),
-  ('drs', 'doctors'),
-  ('rev', 'reverend'),
-  ('lt', 'lieutenant'),
-  ('hon', 'honorable'),
-  ('sgt', 'sergeant'),
-  ('capt', 'captain'),
-  ('esq', 'esquire'),
-  ('ltd', 'limited'),
-  ('col', 'colonel'),
-  ('ft', 'fort'),
-]]
+# Define common Urdu abbreviations and their expanded forms:
+_abbreviations_urdu = [
+    (re.compile(r'\bجناب\b', re.IGNORECASE), 'جناب محترم'),
+    (re.compile(r'\bڈاکٹر\b', re.IGNORECASE), 'ڈاکٹر'),
+    (re.compile(r'\bمحترمہ\b', re.IGNORECASE), 'محترمہ'),
+    (re.compile(r'\bپروف\b', re.IGNORECASE), 'پروفیسر'),
+    (re.compile(r'\bایم ایل اے\b', re.IGNORECASE), 'رکن صوبائی اسمبلی'),
+    (re.compile(r'\bایم این اے\b', re.IGNORECASE), 'رکن قومی اسمبلی'),
+    # Add more abbreviations as needed
+]
+
+# Urdu-specific punctuation normalization:
+_punctuation_replacements = {
+    '۔': '.',  # Urdu full stop to period
+    '،': ',',  # Urdu comma to English comma
+    '؛': ';',  # Urdu semicolon to English semicolon
+    '؟': '?',  # Urdu question mark to English question mark
+    '!' : '!', # Urdu exclamation mark to English exclamation mark
+    '“': '"',  # Urdu opening quotation mark to English
+    '”': '"',  # Urdu closing quotation mark to English
+    '‘': "'",  # Urdu single quote to English
+    '’': "'",  # Urdu single quote to English
+}
+
+# Special characters to be removed or normalized:
+_special_characters = ['؂', '؃', '؏', '؎', 'ؐ', 'ؑ', 'ؒ', 'ؓ', 'ؔ', 'ؕ', 'ؖ', 'ؗ', 'ؘ', 'ؙ', 'ؚ']
+
+# Language detection regex for simple Urdu and English separation:
+_urdu_regex = re.compile(r'[\u0600-\u06FF]+')  # Matches Urdu script
+_english_regex = re.compile(r'[a-zA-Z]+')      # Matches English words
 
 
-def expand_abbreviations(text):
-  for regex, replacement in _abbreviations:
-    text = re.sub(regex, replacement, text)
-  return text
+def normalize_punctuation(text):
+    '''Normalize Urdu punctuation marks.'''
+    for urdu_punct, english_punct in _punctuation_replacements.items():
+        text = text.replace(urdu_punct, english_punct)
+    return text
 
 
-def expand_numbers(text):
-  return normalize_numbers(text)
+def remove_special_characters(text):
+    '''Remove unnecessary special characters from Urdu text.'''
+    for char in _special_characters:
+        text = text.replace(char, '')
+    return text
 
 
-def lowercase(text):
-  return text.lower()
+def expand_abbreviations_urdu(text):
+    '''Expand common Urdu abbreviations to their full forms.'''
+    for regex, replacement in _abbreviations_urdu:
+        text = re.sub(regex, replacement, text)
+    return text
+
+
+def normalize_numbers_mixed(text):
+    '''
+    Normalize Urdu and English numbers:
+    Convert Urdu numerals to Arabic numerals (1, 2, 3) and retain English numbers.
+    '''
+    text = normalize_numbers_urdu(text)  # Custom function for Urdu numerals
+    return text
+
+
+def process_mixed_language(text):
+    '''
+    Process mixed Urdu-English text:
+    Retains English words and ensures Urdu-specific cleaning.
+    '''
+    # Split by whitespace to process word by word
+    words = text.split()
+    processed_words = []
+
+    for word in words:
+        if _urdu_regex.search(word):  # If the word is Urdu
+            word = normalize_numbers_urdu(word)
+            word = expand_abbreviations_urdu(word)
+        elif _english_regex.search(word):  # If the word is English
+            word = unidecode(word)  # Ensure ASCII compatibility
+        processed_words.append(word)
+
+    return ' '.join(processed_words)
 
 
 def collapse_whitespace(text):
-  return re.sub(_whitespace_re, ' ', text)
+    '''Collapse multiple spaces into a single space.'''
+    return re.sub(_whitespace_re, ' ', text)
 
 
-def convert_to_ascii(text):
-  return unidecode(text)
-
-
-def basic_cleaners(text):
-  '''Basic pipeline that lowercases and collapses whitespace without transliteration.'''
-  text = lowercase(text)
-  text = collapse_whitespace(text)
-  return text
-
-
-def transliteration_cleaners(text):
-  '''Pipeline for non-English text that transliterates to ASCII.'''
-  text = convert_to_ascii(text)
-  text = lowercase(text)
-  text = collapse_whitespace(text)
-  return text
-
-
-def english_cleaners(text):
-  '''Pipeline for English text, including number and abbreviation expansion.'''
-  text = convert_to_ascii(text)
-  text = lowercase(text)
-  text = expand_numbers(text)
-  text = expand_abbreviations(text)
-  text = collapse_whitespace(text)
-  text = text.replace('"', '')
-  return text
+def humanize_mixed_cleaners(text):
+    '''
+    Full pipeline for humanizing mixed Urdu-English text:
+    Normalizes punctuation, removes special characters, expands abbreviations,
+    processes mixed language, and collapses whitespace.
+    '''
+    text = normalize_punctuation(text)
+    text = remove_special_characters(text)
+    text = process_mixed_language(text)
+    text = collapse_whitespace(text)
+    return text
